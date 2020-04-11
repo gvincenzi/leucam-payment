@@ -1,18 +1,24 @@
 package org.leucam.payment.service;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.leucam.payment.dto.OrderDTO;
 import org.leucam.payment.dto.UserDTO;
+import org.leucam.payment.dto.type.ColorType;
+import org.leucam.payment.dto.type.FrontBackType;
 import org.leucam.payment.entity.*;
 import org.leucam.payment.repository.OrderRepository;
 import org.leucam.payment.repository.PaymentRepository;
 import org.leucam.payment.repository.RechargeUserCreditLogRepository;
 import org.leucam.payment.repository.UserCreditRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -29,6 +35,12 @@ public class InternalPaymentServiceImpl implements InternalPaymentService {
     private PaymentRepository paymentRepository;
     @Autowired
     private MessageChannel rechargeUserCreditChannel;
+
+    @Value("${leucam.price.black}")
+    private BigDecimal blackPrice;
+
+    @Value("${leucam.price.color}")
+    private BigDecimal colorPrice;
 
     @Override
     public UserCredit userCreditUpdateCredit(UserDTO user, BigDecimal credit, RechargeUserCreditType type){
@@ -81,9 +93,8 @@ public class InternalPaymentServiceImpl implements InternalPaymentService {
             orderToPersist = new Order();
         }
 
-        BigDecimal totalToPay = msg.computeTotalToPay();
         orderToPersist.setOrderId(msg.getOrderId());
-        orderToPersist.setTotalToPay(totalToPay);
+        orderToPersist.setTotalToPay(processOrderPrice(msg));
 
         Optional<UserCredit> userCredit = userCreditRepository.findById(msg.getUser().getId());
         UserCredit orderUserCredit = null;
@@ -119,6 +130,22 @@ public class InternalPaymentServiceImpl implements InternalPaymentService {
                 paymentRepository.deleteById(payment.get().getPaymentId());
             }
             orderRepository.deleteById(msg.getOrderId());
+        }
+    }
+
+    @Override
+    public BigDecimal processOrderPrice(OrderDTO msg) {
+        try {
+            PDDocument doc = PDDocument.load(new File(msg.getProduct().getFilePath()));
+            Integer numberOfPages = doc.getNumberOfPages();
+            Double numberOfPagesToPrint = numberOfPages.doubleValue();
+            numberOfPagesToPrint = Math.ceil(numberOfPagesToPrint / msg.getPagesPerSheet());
+            numberOfPagesToPrint = (FrontBackType.FRONT_BACK.equals(msg.getFrontBackType())) ? Math.ceil(numberOfPagesToPrint / 2) : numberOfPagesToPrint;
+            numberOfPagesToPrint = numberOfPagesToPrint * msg.getNumberOfCopies();
+            BigDecimal pricePerPage = ColorType.COLOR.equals(msg.getColorType()) ? colorPrice : blackPrice;
+            return BigDecimal.valueOf(numberOfPagesToPrint).multiply(pricePerPage);
+        } catch (IOException ex){
+            return BigDecimal.ZERO;
         }
     }
 }

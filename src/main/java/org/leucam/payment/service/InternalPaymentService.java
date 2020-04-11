@@ -6,6 +6,7 @@ import org.leucam.payment.entity.Order;
 import org.leucam.payment.entity.RechargeUserCreditType;
 import org.leucam.payment.entity.UserCredit;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 
 public interface InternalPaymentService {
@@ -14,4 +15,5 @@ public interface InternalPaymentService {
     Order processUserOrder(OrderDTO msg);
     void processUserCancellation(UserDTO msg);
     void processOrderCancellation(OrderDTO msg);
+    BigDecimal processOrderPrice(OrderDTO msg);
 }

@@ -1,11 +1,11 @@
 package org.leucam.payment.controller;
 
+import org.leucam.payment.client.OrderResourceClient;
+import org.leucam.payment.dto.OrderDTO;
 import org.leucam.payment.dto.UserDTO;
-import org.leucam.payment.entity.Order;
-import org.leucam.payment.entity.RechargeUserCreditLog;
-import org.leucam.payment.entity.RechargeUserCreditType;
-import org.leucam.payment.entity.UserCredit;
+import org.leucam.payment.entity.*;
 import org.leucam.payment.repository.OrderRepository;
+import org.leucam.payment.repository.PaymentRepository;
 import org.leucam.payment.repository.RechargeUserCreditLogRepository;
 import org.leucam.payment.repository.UserCreditRepository;
 import org.leucam.payment.service.InternalPaymentService;
@@ -13,11 +13,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -32,10 +36,19 @@ public class InternalCreditController {
     private RechargeUserCreditLogRepository rechargeUserCreditLogRepository;
 
     @Autowired
+    private PaymentRepository paymentRepository;
+
+    @Autowired
     private OrderRepository orderRepository;
 
     @Autowired
+    private MessageChannel orderPaymentChannel;
+
+    @Autowired
     private InternalPaymentService internalPaymentService;
+
+    @Autowired
+    private OrderResourceClient orderResourceClient;
 
     @Value("${message.userNotFound}")
     public String userNotFound;
@@ -127,9 +140,59 @@ public class InternalCreditController {
         }
     }
 
+    @GetMapping("/order/{orderId}/price")
+    public ResponseEntity<BigDecimal> getOrderPrice(@PathVariable("orderId") Long orderId) {
+        Optional<Order> orderOptional = orderRepository.findById(orderId);
+        if(orderOptional.isPresent()){
+            return new ResponseEntity<>(orderOptional.get().getTotalToPay(), HttpStatus.OK);
+        } else {
+            return new ResponseEntity<>(BigDecimal.ZERO, HttpStatus.OK);
+        }
+    }
+
     @GetMapping
     public ResponseEntity<List<UserCredit>> findAllCredit() {
         List<UserCredit> userCredit = userCreditRepository.findAll();
         return new ResponseEntity<>(userCredit,HttpStatus.OK);
+    }
+
+    @PutMapping(value = "/order/{orderId}/pay")
+    public ResponseEntity<String> makePayment(@PathVariable("orderId") Long orderId) {
+        Optional<Order> orderToPay = orderRepository.findById(orderId);
+        Order order = null;
+        if (!orderToPay.isPresent()) {
+            OrderDTO orderToPayRemote = orderResourceClient.findOrderById(orderId);
+            if(orderToPayRemote != null){
+                order = internalPaymentService.processUserOrder(orderToPayRemote);
+            } else {
+                return new ResponseEntity<>(String.format(orderNotExist, orderId), HttpStatus.NOT_ACCEPTABLE);
+            }
+        } else {
+            order = orderToPay.get();
+        }
+
+        UserCredit userCredit = order.getUserCredit();
+        if (userCredit.getCredit().compareTo(order.getTotalToPay()) < 0) {
+            return new ResponseEntity<>(String.format(insufficientCredit, order.getTotalToPay(), userCredit.getUserId(), userCredit.getCredit()), HttpStatus.OK);
+        } else {
+            Optional<Payment> paymentPeristed = paymentRepository.findByOrderId(order.getOrderId());
+            if(paymentPeristed.isPresent()){
+                return new ResponseEntity<>(String.format(alreadyPaid,order.getOrderId()), HttpStatus.OK);
+            } else {
+                Payment payment = new Payment();
+                payment.setPaymentId("INTERNAL_PAYID_" + System.currentTimeMillis());
+                payment.setPaymentDateTime(LocalDateTime.now());
+                payment.setOrderId(order.getOrderId());
+                payment.setPaymentType(PaymentType.INTERNAL_CREDIT);
+                paymentRepository.save(payment);
+                BigDecimal newCredit = userCredit.getCredit().subtract(order.getTotalToPay());
+                userCredit.setCredit(newCredit);
+                userCreditRepository.save(userCredit);
+
+                Message<Payment> msg = MessageBuilder.withPayload(payment).build();
+                orderPaymentChannel.send(msg);
+                return new ResponseEntity<>(paymentApproved, HttpStatus.OK);
+            }
+        }
     }
 }

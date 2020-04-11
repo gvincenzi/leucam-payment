@@ -63,3 +63,6 @@ leucam:
   api:
     username:
     password:
+  price:
+    black: 0.10
+    color: 0.20

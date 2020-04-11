@@ -21,12 +21,4 @@ public class OrderDTO {
     private UserDTO user;
     private ProductDTO product;
     private Boolean paid = Boolean.FALSE;
-
-    @JsonIgnore
-    public BigDecimal computeTotalToPay() {
-        /*return getQuantity() != null && getProduct() != null
-                && getProduct().getPricePerUnit() != null ? new BigDecimal(getQuantity()).multiply(getProduct().getPricePerUnit()) : BigDecimal.ZERO;
-         */
-        return BigDecimal.ZERO;
-    }
 }
