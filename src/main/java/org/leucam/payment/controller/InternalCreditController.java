@@ -173,7 +173,7 @@ public class InternalCreditController {
 
         UserCredit userCredit = order.getUserCredit();
         if (userCredit.getCredit().compareTo(order.getTotalToPay()) < 0) {
-            return new ResponseEntity<>(String.format(insufficientCredit, order.getTotalToPay(), userCredit.getUserId(), userCredit.getCredit()), HttpStatus.OK);
+            return new ResponseEntity<>(String.format(insufficientCredit, order.getTotalToPay(), userCredit.getCredit()), HttpStatus.OK);
         } else {
             Optional<Payment> paymentPeristed = paymentRepository.findByOrderId(order.getOrderId());
             if(paymentPeristed.isPresent()){
@@ -184,6 +184,7 @@ public class InternalCreditController {
                 payment.setPaymentDateTime(LocalDateTime.now());
                 payment.setOrderId(order.getOrderId());
                 payment.setPaymentType(PaymentType.INTERNAL_CREDIT);
+                payment.setAmount(order.getTotalToPay());
                 paymentRepository.save(payment);
                 BigDecimal newCredit = userCredit.getCredit().subtract(order.getTotalToPay());
                 userCredit.setCredit(newCredit);

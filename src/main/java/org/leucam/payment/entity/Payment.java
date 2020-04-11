@@ -7,6 +7,7 @@ import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -22,4 +23,6 @@ public class Payment {
     private Long orderId;
     @Column
     private PaymentType paymentType;
+    @Column
+    private BigDecimal amount;
 }
